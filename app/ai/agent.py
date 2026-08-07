@@ -32,7 +32,9 @@ log = logging.getLogger(__name__)
 # Each iteration is a full model call, and free-tier quota is per minute —
 # so this is deliberately tighter than it would be on a paid tier.
 MAX_ITERATIONS = 3
-MAX_TOKENS = 1200
+# Replies target ~100 words. A tight ceiling is a latency lever as much as a
+# style one: generation time scales with tokens produced.
+MAX_TOKENS = 850
 TOOL_TIMEOUT = 25.0
 
 # Tool results are fed straight back into the context window, and the free

@@ -22,9 +22,48 @@ def _escape(text: str) -> str:
     return html.escape(text, quote=False)
 
 
+# Models reach for typographic characters that read badly on a phone and
+# sometimes render as boxes: non-breaking hyphens inside words, multiplication
+# signs for "x", narrow spaces before "%". The persona asks for plain ASCII,
+# but instruction-following is probabilistic and formatting is not worth
+# gambling on — so it is normalised here as well.
+_PUNCTUATION = {
+    "‑": "-",  # non-breaking hyphen  (price‑to‑sales)
+    "‒": "-",  # figure dash
+    "–": "-",  # en dash
+    "—": "-",  # em dash
+    "―": "-",  # horizontal bar
+    "−": "-",  # minus sign
+    "×": "x",  # multiplication sign  (18×)
+    "≈": "~",  # almost equal to
+    "≤": "<=",
+    "≥": ">=",
+    "‘": "'",
+    "’": "'",
+    "“": '"',
+    "”": '"',
+    "…": "...",
+    " ": " ",  # non-breaking space
+    " ": " ",  # thin space
+    " ": " ",  # narrow no-break space  (63 %)
+    "​": "",   # zero-width space
+}
+
+
+def normalize_punctuation(text: str) -> str:
+    for bad, good in _PUNCTUATION.items():
+        text = text.replace(bad, good)
+    # "63 %" -> "63%": a space before the unit reads as a typo.
+    text = re.sub(r"(\d)\s+%", r"\1%", text)
+    # Collapse the double spaces those substitutions can leave behind.
+    return re.sub(r"[ \t]{2,}", " ", text)
+
+
 def to_telegram_html(text: str) -> str:
     if not text:
         return ""
+
+    text = normalize_punctuation(text)
 
     # Protect fenced code before any other transformation touches it.
     blocks: list[str] = []

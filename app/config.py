@@ -49,6 +49,11 @@ class Settings(BaseSettings):
 
     # --- optional integrations ----------------------------------------------
     finnhub_api_key: str = ""
+
+    # OpenRouter — used ONLY for image reading, because Groq's free tier has
+    # no vision model. Free key, free models. Without it, Atlas says plainly
+    # that it can't see images rather than guessing at a chart.
+    openrouter_api_key: str = ""
     sec_user_agent: str = "Atlas Financial Assistant contact@example.com"
 
     # --- models (all free on Groq) -------------------------------------------
@@ -65,10 +70,8 @@ class Settings(BaseSettings):
     # cleaner at JSON than llama-3.1-8b-instant.
     atlas_fast_model: str = "openai/gpt-oss-20b"
 
-    # Vision. No vision-capable model is currently available on Groq's free
-    # tier, so this is empty by default and image support switches itself off
-    # rather than failing at the user. Set it if one becomes available.
-    atlas_vision_model: str = ""
+    # Vision runs on OpenRouter (see openrouter_api_key above). Free tier.
+    atlas_vision_model: str = "meta-llama/llama-3.2-11b-vision-instruct:free"
 
     # Voice notes.
     atlas_whisper_model: str = "whisper-large-v3-turbo"
@@ -140,8 +143,8 @@ class Settings(BaseSettings):
 
     @property
     def vision_enabled(self) -> bool:
-        # Requires both a key and a configured vision model.
-        return bool(self.groq_api_key and self.atlas_vision_model)
+        # Vision is a separate provider; without its key the feature is off.
+        return bool(self.openrouter_api_key and self.atlas_vision_model)
 
     @property
     def finnhub_enabled(self) -> bool:

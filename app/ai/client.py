@@ -2,9 +2,10 @@
 
 Everything Atlas needs is on Groq's free tier, reached through one key:
 
-  chat + tool calling   gpt-oss-120b
-  cheap background work gpt-oss-20b
-  speech-to-text        whisper-large-v3-turbo
+  chat + tool calling   gpt-oss-120b          (Groq)
+  cheap background work gpt-oss-20b           (Groq)
+  speech-to-text        whisper-large-v3      (Groq)
+  vision                llama-3.2-11b-vision  (OpenRouter — Groq has none)
 
 Model choice was measured, not assumed: llama-3.3-70b-versatile returned
 `tool_use_failed` on the simplest query against this project's 17-tool set,
@@ -261,52 +262,72 @@ async def transcribe_audio(audio: bytes, filename: str = "voice.ogg") -> str | N
 
 
 async def read_image(image: bytes, question: str) -> str | None:
-    """Describe a chart, table or screenshot.
+    """Transcribe a chart, table or screenshot into text.
 
-    The reasoning model has no vision, so images take a separate hop through
-    a vision model and enter the normal turn as text. This keeps tool calling
-    on the stronger model instead of trading it away for multimodality.
+    Runs on OpenRouter rather than Groq, whose free tier has no vision model.
+    The reading then enters the normal turn as text, so the analysis still
+    happens on the stronger reasoning model with full tool access — better
+    than trading tool calling away for multimodality.
+
+    The prompt asks for transcription, not interpretation: the vision model
+    reports what is on screen, and Atlas verifies any figure it relies on
+    against live data before quoting it.
     """
     if not settings.vision_enabled:
-        # No vision model available on the free tier. Saying so beats a
-        # confident guess about a chart nobody looked at.
         return None
 
     import base64
 
+    from app.data import http as http_pool
+
     encoded = base64.standard_b64encode(image).decode()
+    payload = {
+        "model": settings.atlas_vision_model,
+        "max_tokens": 900,
+        "temperature": 0.1,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
+                    },
+                    {
+                        "type": "text",
+                        "text": (
+                            "Read this image for a financial analyst. Transcribe "
+                            "every number, axis label, ticker, date and series "
+                            "name exactly as shown. Say what kind of chart or "
+                            "table it is. Do not interpret or give opinions - "
+                            "report only what is visibly there. If something is "
+                            "unreadable, say so rather than guessing.\n\n"
+                            f"The user asked: {question}"
+                        ),
+                    },
+                ],
+            }
+        ],
+    }
+
     try:
-        message = await chat(
-            model=settings.atlas_vision_model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{encoded}"
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": (
-                                "Read this image for a financial analyst. "
-                                "Transcribe every number, axis label, ticker, "
-                                "date and series name you can see, exactly. "
-                                "State what kind of chart or table it is. Do "
-                                "not interpret or give opinions — just report "
-                                "precisely what is there.\n\n"
-                                f"The user asked: {question}"
-                            ),
-                        },
-                    ],
-                }
-            ],
-            max_tokens=1200,
-            temperature=0.1,
-        )
-        return message_text(message) or None
+        async with _gate:
+            client = http_pool.get_client(
+                "openrouter",
+                timeout=60.0,
+                headers={
+                    "Authorization": f"Bearer {settings.openrouter_api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+            r = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions", json=payload
+            )
+        if r.status_code != 200:
+            log.warning("OpenRouter vision %s: %.200s", r.status_code, r.text)
+            return None
+        text = (r.json()["choices"][0]["message"].get("content") or "").strip()
+        return text or None
     except Exception as exc:  # noqa: BLE001
         log.warning("Image reading failed: %s", exc)
         return None
