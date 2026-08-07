@@ -10,9 +10,22 @@ language rather than throwing at the user.
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Telegram accepts only these characters in `secret_token`, 1-256 long.
+# Render's `generateValue` produces base64-ish strings containing "+/=", which
+# Telegram rejects outright — so the value is normalised before use. Both the
+# webhook registration and the request-time comparison run through this, so
+# the two always agree.
+_SECRET_ALLOWED = re.compile(r"[^A-Za-z0-9_-]")
+
+
+def sanitize_webhook_secret(raw: str) -> str:
+    cleaned = _SECRET_ALLOWED.sub("", (raw or "").strip())[:256]
+    return cleaned or "atlas-dev-secret"
 
 
 class Settings(BaseSettings):
@@ -80,13 +93,16 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ derived
     @property
     def webhook_secret(self) -> str:
-        """Never empty.
+        """The secret as Telegram will actually see it.
 
-        An empty value in `.env` overrides the default with "", and Telegram
-        then sends no secret header — so every webhook would be rejected with
-        403 and the bot would look dead. Falling back keeps local runs working.
+        Two failure modes are handled here. An empty value in `.env` would
+        override the default with "", and Telegram sends no header at all —
+        every update would then 403 and the bot would look offline. And a
+        Render-generated value can contain characters Telegram rejects, which
+        makes registration fail outright. Normalising in one place keeps
+        registration and verification in agreement.
         """
-        return self.telegram_webhook_secret.strip() or "atlas-dev-secret"
+        return sanitize_webhook_secret(self.telegram_webhook_secret)
 
     @property
     def sqlalchemy_url(self) -> str:

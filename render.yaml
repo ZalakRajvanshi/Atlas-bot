@@ -38,8 +38,11 @@ services:
       # it. A `fromService` self-reference resolves empty, which silently
       # leaves the Telegram webhook unregistered.
 
+      # Render generates a strong random value. It may contain characters
+      # Telegram rejects in `secret_token` (only A-Za-z0-9_- are allowed), so
+      # the app normalises it on both registration and verification.
       - key: TELEGRAM_WEBHOOK_SECRET
-        generateValue: true          # Render generates a strong random value
+        generateValue: true
 
       - key: PYTHON_VERSION
         value: "3.12.7"

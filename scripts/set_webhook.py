@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import httpx  # noqa: E402
 
-from app.config import settings  # noqa: E402
+from app.config import sanitize_webhook_secret, settings  # noqa: E402
 
 API = "https://api.telegram.org"
 
@@ -48,6 +48,12 @@ async def register(base_url: str, secret: str) -> None:
 
     webhook_url = f"{base_url}/telegram/webhook"
 
+    # Telegram allows only A-Z a-z 0-9 _ - in the secret. Apply the same
+    # normalisation the running app uses, so both sides agree on the value.
+    clean = sanitize_webhook_secret(secret)
+    if clean != secret.strip():
+        print(f"Secret normalised for Telegram ({len(clean)} usable chars).")
+
     async with httpx.AsyncClient(timeout=30.0) as client:
         health = await client.get(f"{base_url}/health")
         if health.status_code != 200:
@@ -58,7 +64,7 @@ async def register(base_url: str, secret: str) -> None:
             f"{API}/bot{settings.telegram_bot_token}/setWebhook",
             json={
                 "url": webhook_url,
-                "secret_token": secret.strip(),
+                "secret_token": clean,
                 "allowed_updates": ["message", "edited_message"],
                 "drop_pending_updates": True,
                 "max_connections": 40,
