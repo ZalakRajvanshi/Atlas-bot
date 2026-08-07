@@ -25,7 +25,11 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
 
     # --- deployment ----------------------------------------------------------
+    # Usually left blank: Render injects RENDER_EXTERNAL_URL into every web
+    # service, and `base_url` below falls back to it. Set this explicitly only
+    # when self-hosting or tunnelling (ngrok) locally.
     public_base_url: str = ""
+    render_external_url: str = ""
     telegram_webhook_secret: str = "atlas-dev-secret"
     database_url: str = ""
     port: int = 8000
@@ -98,8 +102,20 @@ class Settings(BaseSettings):
         return raw
 
     @property
+    def base_url(self) -> str:
+        """Public HTTPS base URL of this service.
+
+        Render sets RENDER_EXTERNAL_URL automatically on every web service.
+        Relying on that first is far more robust than a `render.yaml`
+        self-reference, which resolves to an empty string — and an empty base
+        URL means no webhook is registered and the bot silently never
+        receives a single message.
+        """
+        return (self.public_base_url or self.render_external_url).strip().rstrip("/")
+
+    @property
     def webhook_url(self) -> str:
-        return f"{self.public_base_url.rstrip('/')}/telegram/webhook"
+        return f"{self.base_url}/telegram/webhook"
 
     @property
     def voice_enabled(self) -> bool:

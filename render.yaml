@@ -33,11 +33,10 @@ services:
           name: atlas-db
           property: connectionString
 
-      - key: PUBLIC_BASE_URL
-        fromService:
-          type: web
-          name: atlas-financial-assistant
-          envVarKey: RENDER_EXTERNAL_URL
+      # PUBLIC_BASE_URL is deliberately absent: Render injects
+      # RENDER_EXTERNAL_URL into every web service and the app falls back to
+      # it. A `fromService` self-reference resolves empty, which silently
+      # leaves the Telegram webhook unregistered.
 
       - key: TELEGRAM_WEBHOOK_SECRET
         generateValue: true          # Render generates a strong random value

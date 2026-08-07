@@ -28,11 +28,11 @@ scheduler: AsyncIOScheduler | None = None
 
 
 async def _keep_alive() -> None:
-    if not settings.public_base_url:
+    if not settings.base_url:
         return
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
-            await client.get(f"{settings.public_base_url.rstrip('/')}/health")
+            await client.get(f"{settings.base_url}/health")
     except Exception as exc:  # noqa: BLE001
         log.debug("Keep-alive ping failed: %s", exc)
 

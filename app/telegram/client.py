@@ -156,7 +156,7 @@ async def download_file(file_id: str, max_bytes: int = 25 * 1024 * 1024) -> byte
 
 
 async def set_webhook() -> bool:
-    if not settings.public_base_url:
+    if not settings.base_url:
         log.warning("PUBLIC_BASE_URL not set — skipping webhook registration.")
         return False
 
