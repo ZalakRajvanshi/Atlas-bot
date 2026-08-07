@@ -36,8 +36,8 @@ GREETING = (
 )
 
 VOICE_UNAVAILABLE = (
-    "I can't listen to voice notes right now — transcription isn't available. "
-    "Type it and I'm all yours."
+    "Type it and I'm all yours - voice transcription isn't switched on for me "
+    "right now."
 )
 
 UNSUPPORTED_DOC = (
@@ -180,10 +180,9 @@ async def _handle_photo(
         # pretending otherwise would mean guessing at numbers on a chart.
         await tg.send_message(
             chat_id,
-            "I can't read images yet — no vision model on the free tier I run "
-            "on. Tell me the ticker and what you're looking at and I'll pull "
-            "the real numbers myself, or send the underlying document and I'll "
-            "read that properly.",
+            "Tell me the ticker and what you're looking at, and I'll pull the "
+            "real numbers myself - or send the underlying document and I'll "
+            "read that properly. Image reading isn't switched on for me yet.",
         )
         return
 

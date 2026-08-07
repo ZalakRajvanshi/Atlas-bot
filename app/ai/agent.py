@@ -44,13 +44,16 @@ TOOL_TIMEOUT = 25.0
 MAX_TOOL_RESULT_CHARS = 2200
 
 FALLBACK_REPLY = (
-    "I hit a problem reaching my data sources just then. Try me again in a moment "
-    "— and if it keeps happening, tell me and I'll work around it."
+    "Try me again in a moment - my data sources didn't come back that time. "
+    "If it keeps happening, tell me and I'll work around it."
 )
 
+# Even the failure messages lead with what happens next rather than what went
+# wrong. "Give me a minute" is actionable; "I'm being rate-limited" is a
+# complaint the user can do nothing with.
 BUSY_REPLY = (
-    "I'm being rate-limited by my model provider right now — free tier, and I've "
-    "been busy. Give me a minute and ask again."
+    "Give me a minute and ask again - I've hit the rate limit on the free tier "
+    "I run on. It clears on its own."
 )
 
 
@@ -171,12 +174,58 @@ async def _loop(
     return final or None
 
 
+# Pure acknowledgements need no tools, no market data and no reasoning model.
+# Routing them to the small model turns a ~6s round trip into about 1s, and
+# leaves the per-minute token budget for questions that actually need it.
+_ACK = {
+    "thanks", "thank you", "thankyou", "ty", "thx", "cheers", "ok", "okay",
+    "k", "kk", "cool", "nice", "great", "perfect", "awesome", "got it",
+    "gotcha", "understood", "sure", "yep", "yup", "yes", "no", "nope", "np",
+    "sounds good", "makes sense", "fair enough", "good stuff", "brilliant",
+    "lovely", "appreciated", "much appreciated", "ta",
+}
+
+
+def _is_acknowledgement(text: str) -> bool:
+    return text.strip().lower().rstrip("!.?").strip() in _ACK
+
+
+async def _quick_reply(user_text: str) -> str | None:
+    """One cheap call for an acknowledgement. Generated, never canned."""
+    try:
+        message = await chat(
+            model=settings.atlas_fast_model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are Atlas, a financial analyst. The user sent a short "
+                        "acknowledgement. Reply in one warm, natural line under 12 "
+                        "words. No emoji, no lists of things you can help with, no "
+                        "question unless it reads naturally. Vary your phrasing."
+                    ),
+                },
+                {"role": "user", "content": user_text},
+            ],
+            max_tokens=40,
+            temperature=0.7,
+        )
+        return message_text(message) or None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 async def run_turn(
     db: AsyncSession,
     user: User,
     user_text: str,
 ) -> str:
     """Run one full conversational turn and return Atlas's reply."""
+    if _is_acknowledgement(user_text):
+        quick = await _quick_reply(user_text)
+        if quick:
+            return quick
+
     ctx = ToolContext(db=db, user=user)
 
     history = await memory.load_history(db, user)
