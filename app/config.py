@@ -1,0 +1,124 @@
+"""Central configuration.
+
+Everything runs on Groq's free tier — chat, tool calling, Whisper
+transcription and vision. There is no paid API anywhere in this project.
+
+Optional integrations degrade gracefully: if a key is missing the
+corresponding capability switches itself off and Atlas says so in plain
+language rather than throwing at the user.
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
+
+    # --- required ------------------------------------------------------------
+    telegram_bot_token: str = ""
+    groq_api_key: str = ""
+
+    # --- deployment ----------------------------------------------------------
+    public_base_url: str = ""
+    telegram_webhook_secret: str = "atlas-dev-secret"
+    database_url: str = ""
+    port: int = 8000
+
+    # --- optional integrations ----------------------------------------------
+    finnhub_api_key: str = ""
+    sec_user_agent: str = "Atlas Financial Assistant contact@example.com"
+
+    # --- models (all free on Groq) -------------------------------------------
+    # Reasoning + tool calling.
+    #
+    # Chosen by measurement, not reputation: llama-3.3-70b-versatile failed
+    # tool calling on the simplest case in this project's tool set (17 tools),
+    # returning `tool_use_failed` with malformed Llama-style function syntax.
+    # gpt-oss-120b passed every case at 0.6-0.9s. Tool reliability is
+    # load-bearing here — an assistant that can't fetch a price is useless.
+    atlas_model: str = "openai/gpt-oss-120b"
+
+    # Background extraction, relevance scoring, summaries. Measured faster and
+    # cleaner at JSON than llama-3.1-8b-instant.
+    atlas_fast_model: str = "openai/gpt-oss-20b"
+
+    # Vision. No vision-capable model is currently available on Groq's free
+    # tier, so this is empty by default and image support switches itself off
+    # rather than failing at the user. Set it if one becomes available.
+    atlas_vision_model: str = ""
+
+    # Voice notes.
+    atlas_whisper_model: str = "whisper-large-v3-turbo"
+
+    # --- tuning --------------------------------------------------------------
+    log_level: str = "INFO"
+
+    # Alerts below this score (0-1) are never sent. Silence is a feature.
+    proactive_relevance_threshold: float = 0.62
+
+    # How much raw conversation we keep verbatim before rolling it into a
+    # running summary. The binding constraint is Groq's 8,000 tokens/MINUTE
+    # free-tier ceiling, not the model's context window — history is re-sent
+    # on every call, so a long window quietly throttles the whole bot.
+    max_verbatim_turns: int = 6
+
+    # Free-tier rate limits are per-minute. This caps how many Groq calls can
+    # be in flight at once across the whole process, so a briefing sweep can't
+    # starve a live conversation.
+    max_concurrent_llm_calls: int = 4
+
+    # ------------------------------------------------------------------ derived
+    @property
+    def webhook_secret(self) -> str:
+        """Never empty.
+
+        An empty value in `.env` overrides the default with "", and Telegram
+        then sends no secret header — so every webhook would be rejected with
+        403 and the bot would look dead. Falling back keeps local runs working.
+        """
+        return self.telegram_webhook_secret.strip() or "atlas-dev-secret"
+
+    @property
+    def sqlalchemy_url(self) -> str:
+        """Normalise whatever the host gives us into an async driver URL."""
+        raw = self.database_url.strip()
+        if not raw:
+            return "sqlite+aiosqlite:///./atlas.db"
+        # Render/Heroku hand out `postgres://`, which SQLAlchemy 2 rejects.
+        if raw.startswith("postgres://"):
+            raw = raw.replace("postgres://", "postgresql://", 1)
+        if raw.startswith("postgresql://"):
+            raw = raw.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return raw
+
+    @property
+    def webhook_url(self) -> str:
+        return f"{self.public_base_url.rstrip('/')}/telegram/webhook"
+
+    @property
+    def voice_enabled(self) -> bool:
+        # Whisper is on Groq, so voice comes free with the main key.
+        return bool(self.groq_api_key)
+
+    @property
+    def vision_enabled(self) -> bool:
+        # Requires both a key and a configured vision model.
+        return bool(self.groq_api_key and self.atlas_vision_model)
+
+    @property
+    def finnhub_enabled(self) -> bool:
+        return bool(self.finnhub_api_key)
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()

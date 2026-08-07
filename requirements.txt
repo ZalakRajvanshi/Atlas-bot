@@ -1,0 +1,30 @@
+# --- Web / API ---------------------------------------------------------------
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+httpx==0.28.1
+pydantic==2.10.4
+pydantic-settings==2.7.0
+
+# --- Database ----------------------------------------------------------------
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+aiosqlite==0.20.0
+greenlet==3.1.1
+
+# --- AI ----------------------------------------------------------------------
+# Groq: free tier covers everything Atlas needs — chat + tool calling,
+# Whisper transcription, and vision. No paid API anywhere in this project.
+groq==1.2.0
+
+# --- Financial data ----------------------------------------------------------
+yfinance==0.2.51
+pandas==2.2.3
+
+# --- Documents ---------------------------------------------------------------
+pypdf==5.1.0
+rank-bm25==0.2.2
+python-docx==1.1.2
+
+# --- Scheduling --------------------------------------------------------------
+apscheduler==3.11.0
+tzdata==2024.2

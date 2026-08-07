@@ -1,0 +1,58 @@
+# Render blueprint — deploys Atlas plus its Postgres database.
+#
+# Usage: push this repo to GitHub, then in Render choose
+# "New → Blueprint" and point it at the repo. Render reads this file,
+# provisions both services, and prompts only for the secrets marked
+# `sync: false` below.
+
+services:
+  - type: web
+    name: atlas-financial-assistant
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+
+    envVars:
+      # --- required, entered in the Render dashboard ---------------------
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: GROQ_API_KEY           # free — powers chat, voice and vision
+        sync: false
+
+      # --- optional: better data, Atlas degrades gracefully without ------
+      - key: FINNHUB_API_KEY
+        sync: false
+
+      # --- wired automatically ------------------------------------------
+      - key: DATABASE_URL
+        fromDatabase:
+          name: atlas-db
+          property: connectionString
+
+      - key: PUBLIC_BASE_URL
+        fromService:
+          type: web
+          name: atlas-financial-assistant
+          envVarKey: RENDER_EXTERNAL_URL
+
+      - key: TELEGRAM_WEBHOOK_SECRET
+        generateValue: true          # Render generates a strong random value
+
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: SEC_USER_AGENT
+        value: "Atlas Financial Assistant atlas@example.com"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: PROACTIVE_RELEVANCE_THRESHOLD
+        value: "0.62"
+
+databases:
+  - name: atlas-db
+    plan: free
+    region: oregon
+    postgresMajorVersion: "16"
