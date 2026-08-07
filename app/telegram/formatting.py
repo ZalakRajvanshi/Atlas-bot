@@ -53,8 +53,10 @@ _PUNCTUATION = {
 def normalize_punctuation(text: str) -> str:
     for bad, good in _PUNCTUATION.items():
         text = text.replace(bad, good)
-    # "63 %" -> "63%": a space before the unit reads as a typo.
+    # "63 %" -> "63%", "18 x" -> "18x". A gap before the unit reads as a typo,
+    # and valuation multiples ("18x earnings") are written closed up.
     text = re.sub(r"(\d)\s+%", r"\1%", text)
+    text = re.sub(r"(\d)\s+x\b", r"\1x", text)
     # Collapse the double spaces those substitutions can leave behind.
     return re.sub(r"[ \t]{2,}", " ", text)
 
