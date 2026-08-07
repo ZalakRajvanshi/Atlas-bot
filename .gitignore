@@ -25,3 +25,6 @@ build/
 credentials.json
 secrets.json
 serviceAccountKey.json
+
+# Internal test pack — not part of the deliverable
+TESTING.md
