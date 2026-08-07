@@ -101,6 +101,59 @@ async def h_record_thesis(ctx: ToolContext, args: dict) -> dict:
     return {"recorded": True, "thesis_id": thesis.id, "assumptions": assumptions}
 
 
+async def h_watch_status(ctx: ToolContext, args: dict) -> dict:
+    """What Atlas is actually monitoring for this user.
+
+    "What are you watching for me?" is a status question, not an analysis
+    prompt — but without a tool the model answers it with generic commentary
+    and never surfaces the stored theses, which is precisely the thing worth
+    showing. This returns facts so the reply reports rather than improvises.
+    """
+    watchlist = await repo.get_watchlist(ctx.db, ctx.user.id)
+    theses = await repo.get_theses(ctx.db, ctx.user.id)
+    alerts = await repo.get_alerts(ctx.db, ctx.user.id)
+
+    return {
+        "watchlist": [
+            {
+                "ticker": w.ticker,
+                "company": w.company_name,
+                "why_they_care": w.reason,
+                "high_priority": w.priority >= 2,
+            }
+            for w in watchlist
+        ],
+        "their_stated_views": [
+            {
+                "subject": t.subject,
+                "ticker": t.ticker,
+                "stance": t.stance.value,
+                "their_claim": t.claim,
+                "assumptions_being_watched": t.assumptions,
+                "status": t.status.value,
+                "divergence_note": t.divergence_note,
+            }
+            for t in theses
+        ],
+        "standing_alerts": [
+            {"description": a.description, "ticker": a.ticker, "params": a.params}
+            for a in alerts
+        ],
+        "daily_brief": (
+            f"{ctx.user.briefing_time} {ctx.user.timezone}"
+            if ctx.user.briefing_enabled and ctx.user.briefing_time
+            else "off"
+        ),
+        "instruction": (
+            "Report what you are monitoring for THEM, using their own words "
+            "back to them. Name the assumptions you are checking. Say plainly "
+            "what would make you message them unprompted. If a list is empty, "
+            "say so and offer to start watching something. Do not turn this "
+            "into general market commentary."
+        ),
+    }
+
+
 async def h_create_alert(ctx: ToolContext, args: dict) -> dict:
     kind_raw = (args.get("kind") or "news").lower()
     try:
@@ -214,6 +267,12 @@ TOOLS = [
             ["subject", "claim", "assumptions"],
         ),
         handler=h_record_thesis,
+    ),
+    Tool(
+        name="get_watch_status",
+        description="What Atlas is monitoring for this user - their watchlist, the views they've stated and the assumptions being checked, standing alerts, and briefing time. Use for 'what are you watching for me', 'what do you know about me', 'what are you tracking'.",
+        input_schema=obj({}),
+        handler=h_watch_status,
     ),
     Tool(
         name="create_alert",
