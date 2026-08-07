@@ -26,7 +26,11 @@ from app.voice import transcribe
 log = logging.getLogger(__name__)
 
 MAX_DOC_BYTES = 20 * 1024 * 1024
-SUPPORTED_DOC_SUFFIXES = (".pdf", ".docx", ".doc", ".txt", ".md", ".csv")
+# .htm/.html included because SEC EDGAR serves filings that way — a user
+# saving a 10-K from the source gets HTML, not PDF.
+SUPPORTED_DOC_SUFFIXES = (
+    ".pdf", ".docx", ".doc", ".txt", ".md", ".csv", ".htm", ".html", ".xhtml",
+)
 
 GREETING = (
     "I'm Atlas — I follow markets so you don't have to read twelve tabs before "
@@ -41,8 +45,8 @@ VOICE_UNAVAILABLE = (
 )
 
 UNSUPPORTED_DOC = (
-    "I can read PDFs, Word documents and plain text. Send me one of those — "
-    "annual reports, earnings decks and research notes are what I'm best at."
+    "Send me a PDF, Word doc, HTML filing or plain text - annual reports, "
+    "earnings decks, SEC filings and research notes are what I'm best at."
 )
 
 

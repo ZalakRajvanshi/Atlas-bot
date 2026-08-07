@@ -68,6 +68,60 @@ def extract_docx(data: bytes) -> list[tuple[int, str]]:
     return [(1, text)] if text else []
 
 
+def extract_html(data: bytes) -> list[tuple[int, str]]:
+    """Strip an HTML document down to readable text.
+
+    SEC EDGAR serves filings as .htm, not PDF, so a user who saves a 10-K
+    straight from the source has an HTML file. Rejecting it would be a strange
+    gap in a bot that makes a point of citing filings.
+
+    Regex rather than a parser: filing HTML is machine-generated, structurally
+    simple, and we only need the text. A parser dependency would earn nothing.
+    """
+    for encoding in ("utf-8", "latin-1"):
+        try:
+            markup = data.decode(encoding, errors="ignore")
+            break
+        except (UnicodeDecodeError, LookupError):
+            continue
+    else:
+        return []
+
+    # SEC inline-XBRL filings open with a large hidden block of machine tags
+    # (`false2024FY0000320193P1Y...`). Left in, it becomes the first thing any
+    # summariser reads and it defeats document-type detection, so it goes first.
+    markup = re.sub(r"<ix:header[^>]*>.*?</ix:header>", " ", markup, flags=re.DOTALL | re.I)
+    markup = re.sub(r"<ix:hidden[^>]*>.*?</ix:hidden>", " ", markup, flags=re.DOTALL | re.I)
+    markup = re.sub(
+        r'<div[^>]*style="[^"]*display:\s*none[^"]*"[^>]*>.*?</div>',
+        " ",
+        markup,
+        flags=re.DOTALL | re.I,
+    )
+
+    # Script and style content is never readable text.
+    markup = re.sub(
+        r"<(script|style)[^>]*>.*?</\1>", " ", markup, flags=re.DOTALL | re.I
+    )
+    # Block-level tags become line breaks so paragraphs survive.
+    markup = re.sub(
+        r"</?(p|div|br|tr|h[1-6]|li|table)[^>]*>", "\n", markup, flags=re.I
+    )
+    # Table cells become spaces, or adjacent columns run together.
+    markup = re.sub(r"</?(td|th)[^>]*>", " ", markup, flags=re.I)
+    markup = re.sub(r"<[^>]+>", "", markup)
+
+    # Any XBRL identifiers that survive are long unbroken alphanumeric runs
+    # with no spaces — never real prose. Drop them rather than let them count
+    # toward the text a reader (or the model) has to wade through.
+    markup = re.sub(r"\S{60,}", " ", markup)
+
+    import html as _html
+
+    text = _clean(_html.unescape(markup))
+    return [(1, text)] if len(text) > 200 else []
+
+
 def extract_text(data: bytes) -> list[tuple[int, str]]:
     for encoding in ("utf-8", "utf-16", "latin-1"):
         try:
@@ -84,6 +138,8 @@ def extract(filename: str, data: bytes) -> list[tuple[int, str]]:
         return extract_pdf(data)
     if lowered.endswith((".docx", ".doc")):
         return extract_docx(data)
+    if lowered.endswith((".htm", ".html", ".xhtml")):
+        return extract_html(data)
     return extract_text(data)
 
 
