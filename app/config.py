@@ -71,7 +71,14 @@ class Settings(BaseSettings):
     atlas_fast_model: str = "openai/gpt-oss-20b"
 
     # Vision runs on OpenRouter (see openrouter_api_key above). Free tier.
-    atlas_vision_model: str = "meta-llama/llama-3.2-11b-vision-instruct:free"
+    #
+    # Picked by measurement on a dense Indian peer-comparison table: this model
+    # transcribed 6/6 target figures including negatives, where
+    # nvidia/nemotron-nano-12b-v2-vl managed 2/6 (it describes a table rather
+    # than reading it). The previously configured llama-3.2-11b-vision has been
+    # retired from OpenRouter entirely — free vision models churn, so if images
+    # start failing, re-check availability before debugging anything else.
+    atlas_vision_model: str = "google/gemma-4-26b-a4b-it:free"
 
     # Voice notes.
     atlas_whisper_model: str = "whisper-large-v3-turbo"
