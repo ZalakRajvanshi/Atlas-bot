@@ -80,6 +80,14 @@ class Settings(BaseSettings):
     # start failing, re-check availability before debugging anything else.
     atlas_vision_model: str = "google/gemma-4-26b-a4b-it:free"
 
+    # Free vision models on OpenRouter are shared capacity and return 429
+    # "temporarily rate-limited upstream" frequently — often enough that a
+    # single model is a coin flip. These are tried in order, best-measured
+    # first, so one throttled provider doesn't take image reading down.
+    atlas_vision_fallbacks: str = (
+        "google/gemma-4-31b-it:free,nvidia/nemotron-nano-12b-v2-vl:free"
+    )
+
     # Voice notes.
     atlas_whisper_model: str = "whisper-large-v3-turbo"
 
@@ -147,6 +155,13 @@ class Settings(BaseSettings):
     def voice_enabled(self) -> bool:
         # Whisper is on Groq, so voice comes free with the main key.
         return bool(self.groq_api_key)
+
+    @property
+    def vision_models(self) -> list[str]:
+        """Primary model plus fallbacks, in preference order."""
+        chain = [self.atlas_vision_model.strip()]
+        chain += [m.strip() for m in self.atlas_vision_fallbacks.split(",")]
+        return [m for m in chain if m]
 
     @property
     def vision_enabled(self) -> bool:

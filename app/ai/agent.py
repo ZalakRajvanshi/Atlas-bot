@@ -136,6 +136,11 @@ async def _loop(
                 messages=messages,
                 tools=None if last_pass else TOOL_SCHEMAS,
                 max_tokens=max_tokens,
+                # Deliberately high. At 0.4 this model produced near-identical
+                # replies to rephrased questions, and every answer converged on
+                # the same four-paragraph shape — which is exactly what makes
+                # output read as machine-generated.
+                temperature=0.75,
             )
         except RateLimited:
             raise

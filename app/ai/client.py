@@ -348,24 +348,36 @@ async def read_image(image: bytes, question: str) -> str | None:
         ],
     }
 
-    try:
-        async with _gate:
-            client = http_pool.get_client(
-                "openrouter",
-                timeout=60.0,
-                headers={
-                    "Authorization": f"Bearer {settings.openrouter_api_key}",
-                    "Content-Type": "application/json",
-                },
-            )
-            r = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions", json=payload
-            )
-        if r.status_code != 200:
-            log.warning("OpenRouter vision %s: %.200s", r.status_code, r.text)
-            return None
-        text = (r.json()["choices"][0]["message"].get("content") or "").strip()
-        return text or None
-    except Exception as exc:  # noqa: BLE001
-        log.warning("Image reading failed: %s", exc)
-        return None
+    client = http_pool.get_client(
+        "openrouter",
+        timeout=60.0,
+        headers={
+            "Authorization": f"Bearer {settings.openrouter_api_key}",
+            "Content-Type": "application/json",
+        },
+    )
+
+    for model in settings.vision_models:
+        payload["model"] = model
+        try:
+            async with _gate:
+                r = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions", json=payload
+                )
+            if r.status_code == 200:
+                text = (r.json()["choices"][0]["message"].get("content") or "").strip()
+                if text:
+                    log.info("vision read via %s", model)
+                    return text
+                log.warning("vision %s returned empty content", model)
+            elif r.status_code == 429:
+                # Shared free capacity — move to the next model rather than
+                # waiting, since these throttles last minutes, not seconds.
+                log.warning("vision %s rate limited upstream, trying next", model)
+            else:
+                log.warning("vision %s HTTP %s: %.160s", model, r.status_code, r.text)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("vision %s failed: %s", model, exc)
+
+    log.warning("all vision models unavailable")
+    return None
