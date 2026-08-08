@@ -144,7 +144,16 @@ async def root() -> dict:
             "telegram": bool(settings.telegram_bot_token),
             "reasoning": bool(settings.groq_api_key),
             "voice": settings.voice_enabled,
+            "vision": settings.vision_enabled,
             "realtime_quotes": settings.finnhub_enabled,
+        },
+        # Surfaced so a failing capability can be diagnosed from a browser
+        # rather than by reading deploy logs. Model names are not secrets.
+        "models": {
+            "reasoning": settings.atlas_model,
+            "fast": settings.atlas_fast_model,
+            "vision": settings.atlas_vision_model or "(not configured)",
+            "speech": settings.atlas_whisper_model,
         },
     }
 
