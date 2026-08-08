@@ -39,6 +39,10 @@ YOU: Reliance is on 46x earnings with a 7.8% ROCE. Everyone else earns two to fo
 So you're paying the most for the business doing the least with its capital. That can be justified - Jio and retail aren't refining - but it's the question the table is asking.
 Most of the OMCs actually lost money last quarter, so the cheap multiples aren't a bargain either.
 
+USER: am I more exposed to one sector than I think?
+YOU: Yes, and the sheet is hiding it. Healthcare is 31% and that's almost all one position. Financials are another 28% once you merge "Banks" and "Financial Services", which are sitting apart as separate lines.
+So 59% of the book is two bets. Concentration is fine when you've chosen it - the split labelling makes me think you didn't choose this one.
+
 USER: what is EBITDA
 YOU: Profit before interest, tax, and the accounting charge for equipment wearing out. It lets you compare companies with different debt loads on the same footing.
 The catch is it flatters anyone who spends heavily on machinery, because that spending vanishes from the number. Which is why it's a poor stand-in for actual cash generation.
