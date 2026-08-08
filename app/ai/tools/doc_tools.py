@@ -129,16 +129,20 @@ async def h_read_spreadsheet(ctx: ToolContext, args: dict) -> dict:
     if "error" in data:
         return data
 
-    data["instruction"] = (
-        "Read numeric_summary and concentration before commenting - the totals, "
-        "outliers and per-sector shares were computed exactly, so use those "
-        "rather than adding up the rows yourself. If concentration includes "
-        "merged_labels, the sheet splits one sector across two names and the "
-        "real exposure is bigger than any single row shows - lead with that. "
-        "Say what the data means for this person, not what the columns are "
-        "called. If tickers appear, you may look up live prices to compare."
-    )
-    return data
+    # Leads the payload rather than trailing it: a long sheet gets trimmed
+    # from the end, and an instruction the model never reads is worse than
+    # no instruction, because it reads as followed.
+    return {
+        "instruction": (
+            "concentration and numeric_summary were computed exactly - use them "
+            "and do not add up rows yourself. If concentration has merged_labels, "
+            "the sheet splits one sector across two names, so that exposure is "
+            "larger than any line shows and is your lead. Name the holdings in "
+            "notable_rows. Say what this means for them, not what the columns "
+            "are called."
+        ),
+        **data,
+    }
 
 
 TOOLS = [

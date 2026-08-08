@@ -117,22 +117,65 @@ async def fetch_sheet(sheet_id: str, gid: str | None = None) -> dict:
     totals = [r for r in body if _is_total_row(r)]
     body = [r for r in body if not _is_total_row(r)]
 
-    result = {
+    summary = _summarise(header, body)
+
+    # Key order is load-bearing. The agent truncates long tool results, so
+    # whatever sits at the end is what the model never sees. Everything
+    # computed goes first and the raw rows go last: if anything has to be
+    # dropped it should be the part the model could not have used reliably
+    # anyway. Losing the sector maths to make room for row 11 is the wrong
+    # trade, and it is the trade the obvious ordering silently makes.
+    result: dict = {
         "sheet_id": sheet_id,
         "columns": header,
-        "rows": body,
-        "total_row": totals[0] if totals else None,
         "row_count": total_rows - 1,
         "rows_shown": len(body),
         "truncated": truncated,
-        "numeric_summary": _summarise(header, body),
     }
 
     concentration = _concentration(header, body)
     if concentration:
         result["concentration"] = concentration
 
+    notable = _notable_rows(header, body, summary)
+    if notable:
+        result["notable_rows"] = notable
+
+    result["numeric_summary"] = summary
+    result["total_row"] = totals[0] if totals else None
+    result["rows"] = body
+
     return result
+
+
+def _notable_rows(header: list[str], body: list[list[str]], summary: dict) -> list[dict]:
+    """The specific rows behind each flagged outlier.
+
+    Without these the model knows a 39% weight exists but not that it is
+    Reliance, and naming the holding is the whole value of the answer. They
+    are carried separately because the full row list is the first thing
+    dropped when the result is trimmed.
+    """
+    picked: dict[int, list[str]] = {}
+
+    for index, name in enumerate(header):
+        column = summary.get(name or f"column_{index + 1}")
+        if not column or "outliers_vs_median" not in column:
+            continue
+
+        for row_index, row in enumerate(body):
+            if index >= len(row):
+                continue
+            value = _to_number(row[index])
+            if value is None:
+                continue
+            if any(abs(value - o) < 1e-9 for o in column["outliers_vs_median"]):
+                picked.setdefault(row_index, []).append(f"{name} = {row[index].strip()}")
+
+    return [
+        {"why": "; ".join(reasons), "row": body[row_index]}
+        for row_index, reasons in sorted(picked.items())
+    ][:4]
 
 
 _TOTAL_LABELS = {"total", "totals", "sum", "grand total", "net", "overall"}
@@ -247,8 +290,10 @@ def _summarise(header: list[str], body: list[list[str]]) -> dict:
 
         outliers = _outliers(values)
         if outliers:
-            column["outliers"] = outliers[:5]
-            column["note"] = "far from the median relative to the rest of the column"
+            # Named so it explains itself — a per-column note repeated for
+            # every flagged column costs more of the result budget than the
+            # numbers it describes.
+            column["outliers_vs_median"] = outliers[:5]
 
         summary[name or f"column_{index + 1}"] = column
 
