@@ -261,6 +261,42 @@ async def transcribe_audio(audio: bytes, filename: str = "voice.ogg") -> str | N
         return None
 
 
+# A phone screenshot is often 1200-1500px wide and a megabyte or more. Sent
+# raw, base64 inflates it by a third, the upload dominates the request, and
+# the call can take a minute or simply time out. Vision models gain nothing
+# from that resolution for reading a table, so it is downscaled first — this
+# is the difference between images feeling broken and feeling instant.
+VISION_MAX_EDGE = 1100
+VISION_QUALITY = 78
+
+
+def _shrink_for_vision(data: bytes) -> bytes:
+    try:
+        from PIL import Image
+
+        import io as _io
+
+        img = Image.open(_io.BytesIO(data))
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+
+        longest = max(img.size)
+        if longest > VISION_MAX_EDGE:
+            scale = VISION_MAX_EDGE / longest
+            img = img.resize(
+                (int(img.width * scale), int(img.height * scale)),
+                Image.LANCZOS,
+            )
+
+        buf = _io.BytesIO()
+        img.save(buf, format="JPEG", quality=VISION_QUALITY, optimize=True)
+        shrunk = buf.getvalue()
+        return shrunk if len(shrunk) < len(data) else data
+    except Exception as exc:  # noqa: BLE001 — never block on the optimisation
+        log.warning("Image downscale skipped: %s", exc)
+        return data
+
+
 async def read_image(image: bytes, question: str) -> str | None:
     """Transcribe a chart, table or screenshot into text.
 
@@ -280,7 +316,9 @@ async def read_image(image: bytes, question: str) -> str | None:
 
     from app.data import http as http_pool
 
+    image = _shrink_for_vision(image)
     encoded = base64.standard_b64encode(image).decode()
+    log.info("vision payload %.0f KB", len(encoded) / 1024)
     payload = {
         "model": settings.atlas_vision_model,
         "max_tokens": 900,

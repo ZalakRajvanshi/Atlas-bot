@@ -45,6 +45,19 @@ VOICE_UNAVAILABLE = (
     "right now."
 )
 
+# Telegram omits file_name more often than you'd expect; the MIME type is the
+# reliable signal, so it can stand in for a missing extension.
+MIME_SUFFIX = {
+    "application/pdf": ".pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/msword": ".doc",
+    "text/plain": ".txt",
+    "text/markdown": ".md",
+    "text/csv": ".csv",
+    "text/html": ".html",
+    "application/xhtml+xml": ".xhtml",
+}
+
 UNSUPPORTED_DOC = (
     "Send me a PDF, Word doc, HTML filing or plain text - annual reports, "
     "earnings decks, SEC filings and research notes are what I'm best at."
@@ -238,11 +251,19 @@ async def _handle_document(
     db: AsyncSession, user: User, chat_id: int, message: dict, caption: str
 ) -> None:
     doc = message["document"]
-    filename = doc.get("file_name") or "document"
+    filename = doc.get("file_name") or ""
+    mime = (doc.get("mime_type") or "").lower()
 
+    # Telegram often omits file_name — sharing a PDF from a phone's viewer or
+    # a browser download frequently arrives with no name at all. Rejecting on
+    # the extension alone therefore refused perfectly valid documents, so the
+    # MIME type is checked too and used to recover an extension.
     if not filename.lower().endswith(SUPPORTED_DOC_SUFFIXES):
-        await tg.send_message(chat_id, UNSUPPORTED_DOC)
-        return
+        recovered = MIME_SUFFIX.get(mime)
+        if not recovered:
+            await tg.send_message(chat_id, UNSUPPORTED_DOC)
+            return
+        filename = f"{filename or 'document'}{recovered}"
 
     if (doc.get("file_size") or 0) > MAX_DOC_BYTES:
         await tg.send_message(
