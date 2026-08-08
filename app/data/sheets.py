@@ -30,38 +30,53 @@ log = logging.getLogger(__name__)
 _SHEET_ID = re.compile(r"/spreadsheets/d/([a-zA-Z0-9-_]+)")
 _GID = re.compile(r"[#&?]gid=([0-9]+)")
 
-EXPORT_URL = "https://docs.google.com/spreadsheets/d/{sid}/export?format=csv&gid={gid}"
+EXPORT_URL = "https://docs.google.com/spreadsheets/d/{sid}/export?format=csv"
 
 MAX_ROWS = 200
 MAX_COLS = 30
 MAX_CELL = 200
 
 
-def parse_link(text: str) -> tuple[str, str] | None:
-    """Pull (sheet_id, gid) out of anything the user pasted."""
+def parse_link(text: str) -> tuple[str, str | None] | None:
+    """Pull (sheet_id, gid) out of anything the user pasted.
+
+    `gid` is None when the link doesn't name a tab. That distinction matters:
+    a sheet's first tab is only gid=0 if it has never been recreated,
+    renamed or reordered, and requesting a gid that doesn't exist returns
+    400. Omitting the parameter entirely gives you the first tab, whatever
+    its id happens to be.
+    """
     match = _SHEET_ID.search(text)
     if not match:
         # A bare ID, if it looks like one.
         candidate = text.strip()
         if 30 <= len(candidate) <= 60 and re.fullmatch(r"[a-zA-Z0-9-_]+", candidate):
-            return candidate, "0"
+            return candidate, None
         return None
 
     gid_match = _GID.search(text)
-    return match.group(1), (gid_match.group(1) if gid_match else "0")
+    return match.group(1), (gid_match.group(1) if gid_match else None)
 
 
 def looks_like_sheet_link(text: str) -> bool:
     return "docs.google.com/spreadsheets" in text
 
 
-async def fetch_sheet(sheet_id: str, gid: str = "0") -> dict:
+async def fetch_sheet(sheet_id: str, gid: str | None = None) -> dict:
     """Download a sheet as CSV and return rows plus a light profile."""
-    url = EXPORT_URL.format(sid=sheet_id, gid=gid)
+    base = EXPORT_URL.format(sid=sheet_id)
+    # A named tab is tried first, then the default tab — a stale or copied gid
+    # 400s, and falling back beats telling the user their sheet is private
+    # when it isn't.
+    urls = [f"{base}&gid={gid}", base] if gid else [base]
 
+    r = None
     try:
         client = http.get_client("gsheets", timeout=30.0)
-        r = await client.get(url)
+        for url in urls:
+            r = await client.get(url)
+            if r.status_code == 200 and "text/csv" in r.headers.get("content-type", ""):
+                break
     except Exception as exc:  # noqa: BLE001
         log.warning("Sheet fetch failed: %s", exc)
         return {"error": "Could not reach Google Sheets just then."}
@@ -96,15 +111,34 @@ async def fetch_sheet(sheet_id: str, gid: str = "0") -> dict:
 
     header, *body = rows
 
+    # Real spreadsheets end in a TOTAL / SUM line. Left in the sample it
+    # skews every column and gets flagged as an anomaly, which is both wrong
+    # and the first thing a reader would notice you got wrong.
+    totals = [r for r in body if _is_total_row(r)]
+    body = [r for r in body if not _is_total_row(r)]
+
     return {
         "sheet_id": sheet_id,
         "columns": header,
         "rows": body,
+        "total_row": totals[0] if totals else None,
         "row_count": total_rows - 1,
         "rows_shown": len(body),
         "truncated": truncated,
         "numeric_summary": _summarise(header, body),
     }
+
+
+_TOTAL_LABELS = {"total", "totals", "sum", "grand total", "net", "overall"}
+
+
+def _is_total_row(row: list[str]) -> bool:
+    """A summary line rather than a data row."""
+    for cell in row[:2]:
+        label = re.sub(r"[^a-z ]", "", cell.strip().lower()).strip()
+        if label in _TOTAL_LABELS:
+            return True
+    return False
 
 
 def _to_number(value: str) -> float | None:
