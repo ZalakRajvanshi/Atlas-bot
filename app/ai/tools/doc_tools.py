@@ -130,11 +130,13 @@ async def h_read_spreadsheet(ctx: ToolContext, args: dict) -> dict:
         return data
 
     data["instruction"] = (
-        "Read the numeric_summary before commenting - the min/max/mean and any "
-        "flagged outliers were computed exactly, so use those rather than doing "
-        "arithmetic yourself. Say what the data means for this person, not what "
-        "the columns are called. If something looks wrong or unusual, lead with "
-        "it. If tickers appear, you may look up live prices to compare."
+        "Read numeric_summary and concentration before commenting - the totals, "
+        "outliers and per-sector shares were computed exactly, so use those "
+        "rather than adding up the rows yourself. If concentration includes "
+        "merged_labels, the sheet splits one sector across two names and the "
+        "real exposure is bigger than any single row shows - lead with that. "
+        "Say what the data means for this person, not what the columns are "
+        "called. If tickers appear, you may look up live prices to compare."
     )
     return data
 

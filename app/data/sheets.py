@@ -117,7 +117,7 @@ async def fetch_sheet(sheet_id: str, gid: str | None = None) -> dict:
     totals = [r for r in body if _is_total_row(r)]
     body = [r for r in body if not _is_total_row(r)]
 
-    return {
+    result = {
         "sheet_id": sheet_id,
         "columns": header,
         "rows": body,
@@ -127,6 +127,12 @@ async def fetch_sheet(sheet_id: str, gid: str | None = None) -> dict:
         "truncated": truncated,
         "numeric_summary": _summarise(header, body),
     }
+
+    concentration = _concentration(header, body)
+    if concentration:
+        result["concentration"] = concentration
+
+    return result
 
 
 _TOTAL_LABELS = {"total", "totals", "sum", "grand total", "net", "overall"}
@@ -247,3 +253,219 @@ def _summarise(header: list[str], body: list[list[str]]) -> dict:
         summary[name or f"column_{index + 1}"] = column
 
     return summary
+
+
+# =============================================================================
+# Concentration — the question these sheets are actually asked
+# =============================================================================
+
+# Real holdings sheets label the same sector two ways, because the rows came
+# from two brokers. "Technology" and "IT" sitting apart make a 39% exposure
+# read as 29% and 10%, which is precisely the concentration someone would
+# want flagged and precisely what eyeballing the column misses.
+_SECTOR_ALIASES = {
+    "technology": "Technology",
+    "tech": "Technology",
+    "information technology": "Technology",
+    "info tech": "Technology",
+    "infotech": "Technology",
+    "it": "Technology",
+    "it services": "Technology",
+    "software": "Technology",
+    "semiconductors": "Technology",
+    "financials": "Financials",
+    "financial": "Financials",
+    "financial services": "Financials",
+    "finance": "Financials",
+    "banking": "Financials",
+    "banks": "Financials",
+    "bfsi": "Financials",
+    "insurance": "Financials",
+    "energy": "Energy",
+    "oil gas": "Energy",
+    "oil and gas": "Energy",
+    "oil  gas": "Energy",
+    "petroleum": "Energy",
+    "healthcare": "Healthcare",
+    "health care": "Healthcare",
+    "pharma": "Healthcare",
+    "pharmaceutical": "Healthcare",
+    "pharmaceuticals": "Healthcare",
+    "consumer discretionary": "Consumer Discretionary",
+    "consumer disc": "Consumer Discretionary",
+    "consumer cyclical": "Consumer Discretionary",
+    "consumer cyclicals": "Consumer Discretionary",
+    "discretionary": "Consumer Discretionary",
+    "consumer staples": "Consumer Staples",
+    "consumer defensive": "Consumer Staples",
+    "staples": "Consumer Staples",
+    "fmcg": "Consumer Staples",
+    "communication services": "Communication Services",
+    "communications": "Communication Services",
+    "telecom": "Communication Services",
+    "telecommunications": "Communication Services",
+    "media": "Communication Services",
+    "industrials": "Industrials",
+    "industrial": "Industrials",
+    "capital goods": "Industrials",
+    "manufacturing": "Industrials",
+    "materials": "Materials",
+    "basic materials": "Materials",
+    "metals": "Materials",
+    "mining": "Materials",
+    "chemicals": "Materials",
+    "utilities": "Utilities",
+    "utility": "Utilities",
+    "power": "Utilities",
+    "real estate": "Real Estate",
+    "realty": "Real Estate",
+    "reit": "Real Estate",
+    "reits": "Real Estate",
+}
+
+_WEIGHT_NAMES = re.compile(r"weight|alloc|share|%|pct|percent", re.I)
+_VALUE_NAMES = re.compile(r"value|amount|market|mkt|invested|cost|holding", re.I)
+
+
+def _canonical(label: str) -> str:
+    key = re.sub(r"[^a-z ]", " ", label.strip().lower())
+    key = re.sub(r"\s+", " ", key).strip()
+    return _SECTOR_ALIASES.get(key, label.strip())
+
+
+def _label_column(header: list[str], body: list[list[str]]) -> int | None:
+    """The column that groups rows — sector, category, bucket.
+
+    Wants repetition: a ticker or name column has one distinct value per row
+    and groups nothing.
+    """
+    best: tuple[int, int] | None = None
+
+    for index in range(len(header)):
+        values = [
+            row[index].strip() for row in body if index < len(row) and row[index].strip()
+        ]
+        if len(values) < len(body) * 0.7:
+            continue
+        if any(_to_number(v) is not None for v in values):
+            continue
+
+        distinct = {_canonical(v) for v in values}
+        if not 2 <= len(distinct) <= min(12, len(values) * 0.7):
+            continue
+
+        # Fewer groups means a stronger grouping column.
+        if best is None or len(distinct) < best[1]:
+            best = (index, len(distinct))
+
+    return best[0] if best else None
+
+
+def _weight_column(header: list[str], body: list[list[str]]) -> tuple[int | None, str]:
+    """The column to add up per group, and what it represents.
+
+    A column that already sums to 100 is a weighting whatever it is called;
+    otherwise fall back to a value column and convert to shares.
+    """
+    named_weight = named_value = summing_to_one = None
+
+    for index, name in enumerate(header):
+        values = [
+            _to_number(row[index]) for row in body if index < len(row)
+        ]
+        values = [v for v in values if v is not None]
+        if len(values) < len(body) * 0.6 or not values:
+            continue
+        if any(v < 0 for v in values):
+            continue  # a P/L column is not a weighting
+
+        total = sum(values)
+        if 0.95 <= total <= 1.05 or 95 <= total <= 105:
+            summing_to_one = summing_to_one if summing_to_one is not None else index
+        if _WEIGHT_NAMES.search(name) and named_weight is None:
+            named_weight = index
+        elif _VALUE_NAMES.search(name) and named_value is None:
+            named_value = index
+
+    if summing_to_one is not None:
+        return summing_to_one, "weight"
+    if named_weight is not None:
+        return named_weight, "weight"
+    if named_value is not None:
+        return named_value, "value"
+    return None, "count"
+
+
+def _concentration(header: list[str], body: list[list[str]]) -> dict | None:
+    """Exact exposure per group, with equivalent labels merged.
+
+    Left to the model this is thirteen additions and a judgement call about
+    whether two labels mean the same thing — it will usually get the sum
+    close and the merge wrong, and report a 39% position as 29%.
+    """
+    if len(body) < 3:
+        return None
+
+    label_index = _label_column(header, body)
+    if label_index is None:
+        return None
+
+    weight_index, mode = _weight_column(header, body)
+
+    groups: dict[str, float] = {}
+    merged: dict[str, list[str]] = {}
+
+    for row in body:
+        if label_index >= len(row) or not row[label_index].strip():
+            continue
+        raw = row[label_index].strip()
+        name = _canonical(raw)
+
+        if mode == "count":
+            amount = 1.0
+        else:
+            amount = (
+                _to_number(row[weight_index]) if weight_index < len(row) else None
+            ) or 0.0
+
+        groups[name] = groups.get(name, 0.0) + amount
+        seen = merged.setdefault(name, [])
+        if raw not in seen:
+            seen.append(raw)
+
+    total = sum(groups.values())
+    if not groups or total <= 0:
+        return None
+
+    shares = sorted(
+        ((name, value / total) for name, value in groups.items()),
+        key=lambda pair: pair[1],
+        reverse=True,
+    )
+
+    result: dict = {
+        "grouped_by": header[label_index] or f"column_{label_index + 1}",
+        "basis": (
+            f"{header[weight_index]} (exact)"
+            if weight_index is not None and mode != "count"
+            else "position count (no weight column found)"
+        ),
+        "shares": {name: f"{share * 100:.1f}%" for name, share in shares},
+        "largest": f"{shares[0][0]} {shares[0][1] * 100:.1f}%",
+    }
+
+    if len(shares) >= 2:
+        top_two = (shares[0][1] + shares[1][1]) * 100
+        result["top_two_combined"] = f"{top_two:.1f}%"
+
+    # Only interesting when it actually changed the picture.
+    collapsed = {k: v for k, v in merged.items() if len(v) > 1}
+    if collapsed:
+        result["merged_labels"] = {k: " + ".join(v) for k, v in collapsed.items()}
+        result["merge_note"] = (
+            "These labels are the same sector written two ways and have been "
+            "combined. The sheet shows them apart, so this exposure is larger "
+            "than it looks on the page - say so."
+        )
+
+    return result
