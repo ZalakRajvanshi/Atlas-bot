@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 
 from app.ai.tools.base import Tool, ToolContext, norm_ticker, obj
-from app.data import news
+from app.data import news, sheets
 from app.db import repo
 from app.db.models import utcnow
 from app.documents import retrieve
@@ -115,7 +115,40 @@ async def h_cross_reference(ctx: ToolContext, args: dict) -> dict:
     }
 
 
+async def h_read_spreadsheet(ctx: ToolContext, args: dict) -> dict:
+    """Read a link-shared Google Sheet."""
+    parsed = sheets.parse_link(args["link"])
+    if not parsed:
+        return {
+            "error": "That doesn't look like a Google Sheets link. Paste the "
+                     "URL from the address bar."
+        }
+
+    sheet_id, gid = parsed
+    data = await sheets.fetch_sheet(sheet_id, gid)
+    if "error" in data:
+        return data
+
+    data["instruction"] = (
+        "Read the numeric_summary before commenting - the min/max/mean and any "
+        "flagged outliers were computed exactly, so use those rather than doing "
+        "arithmetic yourself. Say what the data means for this person, not what "
+        "the columns are called. If something looks wrong or unusual, lead with "
+        "it. If tickers appear, you may look up live prices to compare."
+    )
+    return data
+
+
 TOOLS = [
+    Tool(
+        name="read_spreadsheet",
+        description="Read a link-shared Google Sheet (holdings, a model, a budget, any table). Use whenever the user pastes a docs.google.com/spreadsheets link or refers to their sheet. Returns the rows plus exact per-column min/max/mean and flagged outliers.",
+        input_schema=obj(
+            {"link": {"type": "string", "description": "Google Sheets URL"}},
+            ["link"],
+        ),
+        handler=h_read_spreadsheet,
+    ),
     Tool(
         name="list_documents",
         description="List uploaded documents with ids and summaries. Use when they say 'the report' and you need to identify it.",

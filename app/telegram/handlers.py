@@ -18,6 +18,7 @@ from app.ai.client import quick_text, read_image
 from app.config import settings
 from app.db import repo, session_scope
 from app.db.models import MessageRole, OnboardingStage, User
+from app.data import sheets
 from app.documents import ingest
 from app.memory import service as memory
 from app.telegram import client as tg
@@ -108,6 +109,12 @@ async def _dispatch(
         return
 
     if text:
+        # A bare sheet link with no question still has an obvious intent.
+        if sheets.looks_like_sheet_link(text) and len(text.split()) <= 2:
+            text = (
+                f"{text}\n\n[They pasted this spreadsheet with no question. "
+                f"Read it and tell them what stands out.]"
+            )
         await _converse(db, user, chat_id, text)
         return
 
