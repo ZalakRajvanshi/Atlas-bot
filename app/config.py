@@ -101,7 +101,12 @@ class Settings(BaseSettings):
     # running summary. The binding constraint is Groq's 8,000 tokens/MINUTE
     # free-tier ceiling, not the model's context window — history is re-sent
     # on every call, so a long window quietly throttles the whole bot.
-    max_verbatim_turns: int = 6
+    # Four, not six. Every message here is re-sent on every model call, and the
+    # free tier's ceiling is per minute — so history depth is bought out of the
+    # same budget as the answer itself. Older context is not lost: the rolling
+    # summary and the stored facts carry it, and those are far cheaper per token
+    # than raw transcript.
+    max_verbatim_turns: int = 4
 
     # Free-tier rate limits are per-minute. This caps how many Groq calls can
     # be in flight at once across the whole process, so a briefing sweep can't

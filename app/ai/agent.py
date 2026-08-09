@@ -31,7 +31,14 @@ log = logging.getLogger(__name__)
 
 # Each iteration is a full model call, and free-tier quota is per minute —
 # so this is deliberately tighter than it would be on a paid tier.
-MAX_ITERATIONS = 3
+# Two, not three. At three, the common path — ask for tools, then answer —
+# still sent the full 1.7k-token tool schema on the second call, where it was
+# never used. That is a fifth of a minute's quota bought for nothing on every
+# single question. Two iterations means tools go out once, and the answering
+# call carries no schema at all. The cost is that a second round of tool calls
+# is no longer possible, which is why the persona insists on requesting
+# everything in one round.
+MAX_ITERATIONS = 2
 # Replies target ~120 words. The ceiling is a latency lever as much as a style
 # one, and for two reasons. Generation time scales with tokens produced, and
 # the free tier's per-minute budget is reserved against max_tokens rather than
