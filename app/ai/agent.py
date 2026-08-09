@@ -178,6 +178,28 @@ async def _chat_resilient(
     )
 
 
+def _flatten_tool_turns(messages: list[dict]) -> list[dict]:
+    """Rewrite a transcript so no tool call appears anywhere in it.
+
+    Tool results survive as plain text the model can still answer from; the
+    calls that produced them are dropped. Used only on the salvage path.
+    """
+    out: list[dict] = []
+    for m in messages:
+        if m.get("role") == "tool":
+            out.append(
+                {
+                    "role": "user",
+                    "content": f"[{m.get('name', 'data')}]\n{m.get('content', '')}",
+                }
+            )
+        elif m.get("role") == "assistant" and m.get("tool_calls"):
+            continue  # the call itself; its result is carried above
+        else:
+            out.append(m)
+    return out
+
+
 async def _loop(
     ctx: ToolContext,
     messages: list[dict],
@@ -204,18 +226,20 @@ async def _loop(
             raise
         except Exception:  # noqa: BLE001
             log.exception("Both models failed")
-            # A failure with tools attached is nearly always the tool-calling
-            # path itself: a malformed call the API rejects outright, or a
-            # request the model can't assemble. The conversation is fine — only
-            # this one round trip is broken — so retry it without tools rather
-            # than handing back an error. The user gets a real answer built on
-            # whatever has already been gathered, and on camera that is the
-            # difference between a wobble and a dead end.
+            # Last resort, and it deliberately does not rely on the model
+            # choosing to behave. `tool_calls` and `role: "tool"` entries in
+            # the history are themselves what keep it thinking in tool terms —
+            # gpt-oss will reach for a built-in `open_browser` it was trained
+            # on, which this application has never defined, and Groq rejects
+            # the request outright. Instructing it not to is unreliable.
+            # Removing the structure is not: the tool output is folded in as
+            # ordinary text, no call ever appears in the transcript, and there
+            # is nothing left to imitate.
             try:
                 message = await _chat_resilient(
                     model=model or settings.atlas_model,
                     messages=[
-                        *messages,
+                        *_flatten_tool_turns(messages),
                         {
                             "role": "system",
                             "content": (
