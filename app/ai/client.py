@@ -135,27 +135,42 @@ async def chat(
     try:
         response = await _call(**kwargs)
     except groq.BadRequestError as exc:
-        # `tool_use_failed`: the model emitted a function call in the wrong
-        # syntax and Groq's parser rejected it with a 400. It is recoverable —
-        # one nudge to use the proper format almost always fixes it — and
-        # letting it through would abort an otherwise healthy turn.
-        if tools and "tool_use_failed" in str(exc):
-            log.warning("Malformed tool call; retrying with a format nudge")
-            nudged = [
-                *messages,
-                {
-                    "role": "system",
-                    "content": (
-                        "Your last tool call was malformed. Emit tool calls "
-                        "using the standard function-calling format only — "
-                        "never write function syntax inside your message text. "
-                        "If you cannot, answer in plain language instead."
-                    ),
-                },
-            ]
-            response = await _call(**{**kwargs, "messages": nudged})
-        else:
+        # `tool_use_failed` is a 400 covering two different faults, and the
+        # recovery for one is useless against the other.
+        #
+        #  - Tools were sent, and the model emitted a call in a syntax Groq's
+        #    parser rejected. Asking for correct syntax fixes it.
+        #
+        #  - No tools were sent, and the model called one anyway: "Tool choice
+        #    is none, but model called a tool". gpt-oss reaches for built-ins
+        #    it was trained on — `open_browser` is the usual one — which this
+        #    application has never defined. Asking for correct syntax here just
+        #    produces a better-formed call to a function that doesn't exist,
+        #    and the retry fails identically. It has to be told there are no
+        #    tools at all.
+        if "tool_use_failed" not in str(exc):
             raise
+
+        if tools:
+            log.warning("Malformed tool call; retrying with a format nudge")
+            correction = (
+                "Your last tool call was malformed. Emit tool calls using the "
+                "standard function-calling format only — never write function "
+                "syntax inside your message text. If you cannot, answer in "
+                "plain language instead."
+            )
+        else:
+            log.warning("Model called a tool with none available; retrying")
+            correction = (
+                "You have NO tools on this call. There is no open_browser, no "
+                "search, no browsing function — none of them exist here. Do "
+                "not attempt any function call. Answer now, in plain text, "
+                "using only what you already have in this conversation."
+            )
+
+        response = await _call(
+            **{**kwargs, "messages": [*messages, {"role": "system", "content": correction}]}
+        )
 
     return response.choices[0].message
 

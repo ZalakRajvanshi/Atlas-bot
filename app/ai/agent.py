@@ -211,8 +211,6 @@ async def _loop(
             # than handing back an error. The user gets a real answer built on
             # whatever has already been gathered, and on camera that is the
             # difference between a wobble and a dead end.
-            if last_pass:
-                return None
             try:
                 message = await _chat_resilient(
                     model=model or settings.atlas_model,
