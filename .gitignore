@@ -26,5 +26,6 @@ credentials.json
 secrets.json
 serviceAccountKey.json
 
-# Internal test pack — not part of the deliverable
+# Internal test pack and shooting script — not part of the deliverable
 TESTING.md
+DEMO.md

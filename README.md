@@ -68,8 +68,10 @@ and a background extraction pass that catches what it didn't think to save.
 
 Every answer leads with the conclusion, gives the two or three things actually
 driving it, and — when Atlas takes any kind of position — states **what would
-change its mind**. Responses are capped near 120 words because the reader is
-on a phone. The persona that enforces this is in
+change its mind**. Length tracks the question rather than a template — a
+one-line question gets a one-line answer, because uniform four-paragraph
+replies read as generated no matter how good the content is. The persona that
+enforces this is in
 [`app/ai/prompts.py`](app/ai/prompts.py), which is the most product-dense file
 in the repo.
 
@@ -84,6 +86,7 @@ in the repo.
 | **Primary sources** | SEC EDGAR filings and as-reported XBRL financials — cited, with links |
 | **News** | Synthesised into implications, never relayed as headlines |
 | **Documents** | Upload a 10-K, deck or research note; ask questions; get page-cited answers |
+| **Spreadsheets** | Paste a link-shared Google Sheet. Sector exposure, outliers and totals are computed in code, not estimated by the model — and sectors written two ways are merged, so a split label can't hide a concentration |
 | **Cross-reference** | Check an uploaded filing's risk factors against *today's* news |
 | **Voice** | Send a voice note; Whisper is primed with finance vocabulary |
 | **Images** | Photograph a chart or table and Atlas reads the actual numbers |
@@ -95,7 +98,7 @@ in the repo.
 ## Architecture
 
 ```
-Telegram ──webhook──▶ FastAPI ──▶ handlers ──▶ agent loop ──▶ Llama 3.3 70B (Groq)
+Telegram ──webhook──▶ FastAPI ──▶ handlers ──▶ agent loop ──▶ gpt-oss-120b (Groq)
                          │                        │
                          │                        ├── market / news / EDGAR tools
                          │                        ├── memory / thesis / alert tools
