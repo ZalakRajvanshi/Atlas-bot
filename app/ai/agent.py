@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import time
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -127,6 +128,56 @@ def _assistant_turn(message) -> dict:
     }
 
 
+async def _chat_resilient(
+    *,
+    model: str,
+    messages: list[dict],
+    tools: list[dict] | None,
+    max_tokens: int,
+) -> Any:
+    """One model call, falling to the smaller model rather than failing.
+
+    Groq meters each model separately, so exhausting gpt-oss-120b's per-minute
+    budget says nothing about gpt-oss-20b's. Under free-tier throttling the
+    120b call doesn't merely 429 — it 429s, backs off, and eventually surfaces
+    as a connection timeout from deep inside the HTTP client, which reads to
+    the user as a broken bot rather than a busy one.
+
+    Falling across models turns the free tier's hardest constraint into a
+    quality downgrade instead of a dead end. A slightly weaker answer beats
+    "try me again in a moment" every time.
+    """
+    try:
+        return await chat(
+            model=model,
+            messages=messages,
+            tools=tools,
+            max_tokens=max_tokens,
+            # Deliberately high. At 0.4 this model produced near-identical
+            # replies to rephrased questions, and every answer converged on
+            # the same four-paragraph shape — which is exactly what makes
+            # output read as machine-generated.
+            temperature=0.75,
+        )
+    except Exception as exc:  # noqa: BLE001
+        if model == settings.atlas_fast_model:
+            raise
+        log.warning(
+            "%s failed (%s) — retrying on %s",
+            model,
+            type(exc).__name__,
+            settings.atlas_fast_model,
+        )
+
+    return await chat(
+        model=settings.atlas_fast_model,
+        messages=messages,
+        tools=tools,
+        max_tokens=max_tokens,
+        temperature=0.75,
+    )
+
+
 async def _loop(
     ctx: ToolContext,
     messages: list[dict],
@@ -143,21 +194,16 @@ async def _loop(
         # saves a whole extra round trip against an 8k tokens/minute budget.
         last_pass = iteration == MAX_ITERATIONS - 1
         try:
-            message = await chat(
+            message = await _chat_resilient(
                 model=model or settings.atlas_model,
                 messages=messages,
                 tools=None if last_pass else TOOL_SCHEMAS,
                 max_tokens=max_tokens,
-                # Deliberately high. At 0.4 this model produced near-identical
-                # replies to rephrased questions, and every answer converged on
-                # the same four-paragraph shape — which is exactly what makes
-                # output read as machine-generated.
-                temperature=0.75,
             )
         except RateLimited:
             raise
         except Exception:  # noqa: BLE001
-            log.exception("Groq call failed")
+            log.exception("Both models failed")
             # A failure with tools attached is nearly always the tool-calling
             # path itself: a malformed call the API rejects outright, or a
             # request the model can't assemble. The conversation is fine — only
@@ -168,7 +214,7 @@ async def _loop(
             if last_pass:
                 return None
             try:
-                message = await chat(
+                message = await _chat_resilient(
                     model=model or settings.atlas_model,
                     messages=[
                         *messages,
@@ -185,7 +231,6 @@ async def _loop(
                     ],
                     tools=None,
                     max_tokens=max_tokens,
-                    temperature=0.75,
                 )
             except Exception:  # noqa: BLE001
                 log.exception("Groq retry without tools also failed")
