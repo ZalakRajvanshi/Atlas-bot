@@ -151,7 +151,39 @@ async def _loop(
             raise
         except Exception:  # noqa: BLE001
             log.exception("Groq call failed")
-            return None
+            # A failure with tools attached is nearly always the tool-calling
+            # path itself: a malformed call the API rejects outright, or a
+            # request the model can't assemble. The conversation is fine — only
+            # this one round trip is broken — so retry it without tools rather
+            # than handing back an error. The user gets a real answer built on
+            # whatever has already been gathered, and on camera that is the
+            # difference between a wobble and a dead end.
+            if last_pass:
+                return None
+            try:
+                message = await chat(
+                    model=model or settings.atlas_model,
+                    messages=[
+                        *messages,
+                        {
+                            "role": "system",
+                            "content": (
+                                "Tools are unavailable for this reply. Answer "
+                                "from what you already have. Never state a "
+                                "current figure you were not already given - "
+                                "say you couldn't pull it and offer what you "
+                                "can do instead."
+                            ),
+                        },
+                    ],
+                    tools=None,
+                    max_tokens=max_tokens,
+                    temperature=0.75,
+                )
+            except Exception:  # noqa: BLE001
+                log.exception("Groq retry without tools also failed")
+                return None
+            return message_text(message) or final or None
 
         text = message_text(message)
         if text:
