@@ -32,9 +32,14 @@ log = logging.getLogger(__name__)
 # Each iteration is a full model call, and free-tier quota is per minute —
 # so this is deliberately tighter than it would be on a paid tier.
 MAX_ITERATIONS = 3
-# Replies target ~100 words. A tight ceiling is a latency lever as much as a
-# style one: generation time scales with tokens produced.
-MAX_TOKENS = 850
+# Replies target ~120 words. The ceiling is a latency lever as much as a style
+# one, and for two reasons. Generation time scales with tokens produced, and
+# the free tier's per-minute budget is reserved against max_tokens rather than
+# what actually comes back — so an inflated ceiling burns quota on every call
+# and buys 429 backoff later in the conversation. 550 leaves roughly four
+# times the target length as headroom, which is plenty for a long document
+# summary and still well clear of truncating anything real.
+MAX_TOKENS = 550
 TOOL_TIMEOUT = 25.0
 
 # Tool results are fed straight back into the context window, and the free
